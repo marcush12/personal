@@ -52,5 +52,5 @@ Route::prefix('admin')->group(function(){
     Route::post('user/{id}/delete', 'AdminController@deleteUser')->name('adminDeleteUser');
 
     Route::post('post/{id}/delete', 'AdminController@deletePost')->name('adminDeletePost');
-    Route::post('post/{id}/delete', 'AdminController@deleteComment')->name('adminDeleteComment');
+    Route::post('comment/{id}/delete', 'AdminController@deleteComment')->name('adminDeleteComment');
 });
