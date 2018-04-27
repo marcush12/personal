@@ -11,6 +11,9 @@
               <a class="nav-link" href="{{route('index')}}">Home</a>
             </li>
             <li class="nav-item">
+              <a class="nav-link" href="{{route('shop.index')}}">Shop</a>
+            </li>
+            <li class="nav-item">
               <a class="nav-link" href="{{route('about')}}">About</a>
             </li>
             <li class="nav-item">
