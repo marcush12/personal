@@ -12,9 +12,12 @@ use PayPal\Api\Payment;
 use PayPal\Api\ItemList;
 use App\Facade\apiContext;
 use PayPal\Api\Transaction;
+use PayPal\Api\setShipping;
 use Illuminate\Http\Request;
 use PayPal\Api\RedirectUrls;
+use App\Mail\SendMailPurchase;
 use PayPal\Api\PaymentExecution;
+use Illuminate\Support\Facades\Mail;
 
 class ShopController extends Controller
 {
@@ -30,136 +33,126 @@ class ShopController extends Controller
     }
     public function orderProduct($id)
     {
-    $apiContext = PayPal::apiContext();
-    $payer = new Payer();
-    $payer->setPaymentMethod("paypal");
+        $product = Product::findOrFail($id);
+        $apiContext = PayPal::apiContext();
+        $payer = new Payer();
+        $payer->setPaymentMethod("paypal");
 
-    $item1 = new Item();
-    $item1->setName('Ground Coffee 40 oz')
-        ->setCurrency('USD')
-        ->setQuantity(1)
-        ->setSku("123123") // Similar to `item_number` in Classic API
-        ->setPrice(7.5);
-    $item2 = new Item();
-    $item2->setName('Granola bars')
-        ->setCurrency('USD')
-        ->setQuantity(5)
-        ->setSku("321321") // Similar to `item_number` in Classic API
-        ->setPrice(2);
+        $item1 = new Item();
+        $item1->setName($product->title)
+            ->setCurrency('USD')
+            ->setQuantity(1)
+            ->setSku($product->id) // Similar to `item_number` in Classic API
+            ->setPrice($product->price);
 
-    $itemList = new ItemList();
-    $itemList->setItems(array($item1, $item2));
+        $itemList = new ItemList();
+        $itemList->setItems(array($item1));
 
-    $details = new Details();
-    $details->setShipping(1.2)
-        ->setTax(1.3)
-        ->setSubtotal(17.50);
+        $details = new Details();
+        $details->setShipping(2)
+            ->setTax(2)
+            ->setSubtotal($product->price);
 
-    $amount = new Amount();
-    $amount->setCurrency("USD")
-        ->setTotal(20)
-        ->setDetails($details);
+        $amount = new Amount();
+        $amount->setCurrency("USD")
+            ->setTotal($product->price + 4)
+            ->setDetails($details);
 
-    $transaction = new Transaction();
-    $transaction->setAmount($amount)
-        ->setItemList($itemList)
-        ->setDescription("Payment description")
-        ->setInvoiceNumber(uniqid());
+        $transaction = new Transaction();
+        $transaction->setAmount($amount)
+            ->setItemList($itemList)
+            ->setDescription("Payment description")
+            ->setInvoiceNumber(uniqid());
 
 
-    $redirectUrls = new RedirectUrls();
-    $redirectUrls->setReturnUrl(route('shop.executeOrder', $id))
-        ->setCancelUrl(route('shop.index'));
+        $redirectUrls = new RedirectUrls();
+        $redirectUrls->setReturnUrl(route('shop.executeOrder', $id))
+            ->setCancelUrl(route('shop.index'));
 
-    $payment = new Payment();
-    $payment->setIntent("sale")
-        ->setPayer($payer)
-        ->setRedirectUrls($redirectUrls)
-        ->setTransactions(array($transaction));
+        $payment = new Payment();
+        $payment->setIntent("sale")
+            ->setPayer($payer)
+            ->setRedirectUrls($redirectUrls)
+            ->setTransactions(array($transaction));
 
 
-    // For Sample Purposes Only.
-    $request = clone $payment;
+        // For Sample Purposes Only.
+        $request = clone $payment;
 
-    try {
-        $payment->create($apiContext);
-    } catch (\Exception $ex) {
-        // NOTE: PLEASE DO NOT USE RESULTPRINTER CLASS IN YOUR ORIGINAL CODE. FOR SAMPLE ONLY
-        print("Created Payment Using PayPal. Please visit the URL to Approve.".$request);
-        exit(1);
+        try {
+            $payment->create($apiContext);
+        } catch (\Exception $ex) {
+            // NOTE: PLEASE DO NOT USE RESULTPRINTER CLASS IN YOUR ORIGINAL CODE. FOR SAMPLE ONLY
+            print("Created Payment Using PayPal. Please visit the URL to Approve.".$request);
+            exit(1);
+        }
+
+        $approvalUrl = $payment->getApprovalLink();
+
+        return redirect($approvalUrl);
     }
-
-    $approvalUrl = $payment->getApprovalLink();
-
-     print("Created Payment Using PayPal. Please visit the URL to Approve.". "<a href='".$approvalUrl."' >".$approvalUrl."</a>");
-
-    return $payment;
-    }
-    public function executeOrder()
+    public function executeOrder($id)
     {
+        $product = Product::findOrFail($id);
         $apiContext = PayPal::apiContext();
 
 
-    // Get the payment Object by passing paymentId
-    // payment id was previously stored in session in
-    // CreatePaymentUsingPayPal.php
-    $paymentId = $_GET['paymentId'];
-    $payment = Payment::get($paymentId, $apiContext);
+        // Get the payment Object by passing paymentId
+        // payment id was previously stored in session in
+        // CreatePaymentUsingPayPal.php
+        $paymentId = $_GET['paymentId'];
+        $payment = Payment::get($paymentId, $apiContext);
 
-    // ### Payment Execute
-    // PaymentExecution object includes information necessary
-    // to execute a PayPal account payment.
-    // The payer_id is added to the request query parameters
-    // when the user is redirected from paypal back to your site
-    $execution = new PaymentExecution();
-    $execution->setPayerId($_GET['PayerID']);
+        // ### Payment Execute
+        // PaymentExecution object includes information necessary
+        // to execute a PayPal account payment.
+        // The payer_id is added to the request query parameters
+        // when the user is redirected from paypal back to your site
+        $execution = new PaymentExecution();
+        $execution->setPayerId($_GET['PayerID']);
 
-    // ### Optional Changes to Amount
-    // If you wish to update the amount that you wish to charge the customer,
-    // based on the shipping address or any other reason, you could
-    // do that by passing the transaction object with just `amount` field in it.
-    // Here is the example on how we changed the shipping to $1 more than before.
-    $transaction = new Transaction();
-    $amount = new Amount();
-    $details = new Details();
+        // ### Optional Changes to Amount
+        // If you wish to update the amount that you wish to charge the customer,
+        // based on the shipping address or any other reason, you could
+        // do that by passing the transaction object with just `amount` field in it.
+        // Here is the example on how we changed the shipping to $1 more than before.
+        $transaction = new Transaction();
+        $amount = new Amount();
+        $details = new Amount();
 
-    $details->setShipping(2.2)
-        ->setTax(1.3)
-        ->setSubtotal(17.50);
+        $details = new Details();
+        $details->setShipping(2)
+            ->setTax(2)
+            ->setSubtotal($product->price);
+        $amount->setCurrency('USD');
+        $amount->setTotal($product->price + 4);
+        $amount->setDetails($details);
+        $transaction->setAmount($amount);
 
-    $amount->setCurrency('USD');
-    $amount->setTotal(21);
-    $amount->setDetails($details);
-    $transaction->setAmount($amount);
-
-    // Add the above transaction object inside our Execution object.
-    $execution->addTransaction($transaction);
-
-    try {
-        // Execute the payment
-        // (See bootstrap.php for more on `ApiContext`)
-        $result = $payment->execute($execution, $apiContext);
-
-        // NOTE: PLEASE DO NOT USE RESULTPRINTER CLASS IN YOUR ORIGINAL CODE. FOR SAMPLE ONLY
-        print("Executed Payment 1".$payment->getId() . "Results: ". $result);
+        // Add the above transaction object inside our Execution object.
+        $execution->addTransaction($transaction);
 
         try {
-            $payment = Payment::get($paymentId, $apiContext);
-        } catch (\Exception $ex) {
+            // Execute the payment
+            // (See bootstrap.php for more on `ApiContext`)
+            $result = $payment->execute($execution, $apiContext);
+
             // NOTE: PLEASE DO NOT USE RESULTPRINTER CLASS IN YOUR ORIGINAL CODE. FOR SAMPLE ONLY
-            print("Get Payment 1");
-            exit(1);
+            print("Executed Payment 1".$payment->getId() . "Results: ". $result);
+
+            try {
+                $payment = Payment::get($paymentId, $apiContext);
+                $paymentInfo = json_decode($payment);
+                Mail::to($paymentInfo->payer->payer_info->email)
+                        ->bcc('annette@personal.test')
+                        ->send(new SendMailPurchase($paymentInfo));
+            } catch (\Exception $ex) {
+                return redirect(route('shop.index'));
+            }
+        } catch (\Exception $ex) {
+            return redirect(route('shop.index'));
         }
-    } catch (\Exception $ex) {
-        // NOTE: PLEASE DO NOT USE RESULTPRINTER CLASS IN YOUR ORIGINAL CODE. FOR SAMPLE ONLY
-        print("Executed Payment 2");
-        exit(1);
+        return redirect(route('shop.index'));
     }
-
-    // NOTE: PLEASE DO NOT USE RESULTPRINTER CLASS IN YOUR ORIGINAL CODE. FOR SAMPLE ONLY
-    print("Get Payment 2". $payment->getId());
-
-    return $payment;
-}
 }
 
